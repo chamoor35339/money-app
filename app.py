@@ -10,10 +10,10 @@ from datetime import datetime
 # ==========================================
 
 # 1. ลิงก์สำหรับ "อ่าน" (จากขั้นตอน Publish to web เป็น CSV)
-CSV_URL = "วางลิงก์_CSV_ยาวๆ_ตรงนี้"
+CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSdAkGWiQR4ybP0nlzrzddrGUHGAEOqn1mMlM6cFGDtbJAySnGvC7pLvxy7Bsszpog1_sunb19l3GfA/pub?output=csv"
 
 # 2. ลิงก์สำหรับ "บันทึก" (จากขั้นตอน Apps Script /exec)
-WEB_APP_URL = "วางลิงก์_Web_App_URL_ยาวๆ_ตรงนี้"
+WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzbEluMkn-mnr74QYavb5K7AbnvOAy-YkvYrsytsFNfq8bft8ACQnAPWv9akUdkycU/exec"
 
 # ==========================================
 
