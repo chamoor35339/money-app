@@ -19,7 +19,7 @@ st.markdown("""
     button[data-testid="stNumberInputStepDown"], button[data-testid="stNumberInputStepUp"] {display: none !important;}
     div[data-testid="stNumberInput"] input {-moz-appearance: textfield;}
     
-    /* สไตล์ตารางธุรกรรม (Transaction Table) */
+    /* สไตล์ตารางธุรกรรม */
     .trans-table {
         width: 100%;
         border-collapse: collapse;
@@ -35,23 +35,23 @@ st.markdown("""
     }
     .trans-cell {
         padding: 10px 15px;
-        font-size: 14px;
+        font-size: 15px; /* ตัวหนังสือใหญ่ขึ้นนิดนึงให้อ่านง่ายในมือถือ */
         color: #333;
     }
     .trans-amount {
         text-align: right;
         font-weight: bold;
+        white-space: nowrap;
     }
-    /* สีพื้นหลังพาสเทล (อ่านง่าย) */
-    .bg-green { background-color: #d1e7dd !important; color: #0f5132 !important; }   /* รายรับ */
-    .bg-red { background-color: #f8d7da !important; color: #842029 !important; }     /* รายจ่าย */
-    .bg-blue { background-color: #cff4fc !important; color: #055160 !important; }    /* โอนเข้า */
-    .bg-yellow { background-color: #fff3cd !important; color: #664d03 !important; }  /* โอนออก */
-    
+    /* สีพื้นหลังพาสเทล + !important */
+    .bg-green { background-color: #d1e7dd !important; color: #0f5132 !important; }   
+    .bg-red { background-color: #f8d7da !important; color: #842029 !important; }     
+    .bg-blue { background-color: #cff4fc !important; color: #055160 !important; }    
+    .bg-yellow { background-color: #fff3cd !important; color: #664d03 !important; }  
 </style>
 """, unsafe_allow_html=True)
 
-# --- ฟังก์ชันจัดการข้อมูล (Real-time) ---
+# --- ฟังก์ชันจัดการข้อมูล ---
 def load_data():
     try:
         response = requests.get(WEB_APP_URL)
@@ -62,19 +62,14 @@ def load_data():
         if df.empty:
             return pd.DataFrame(columns=expected_cols)
             
-        # เช็คคอลัมน์และแปลงวันที่
-        # ถ้าคอลัมน์ขาดเกิน ให้เติมให้ครบป้องกัน Error
         for col in expected_cols:
-            if col not in df.columns:
-                df[col] = ""
+            if col not in df.columns: df[col] = ""
 
         df = df[expected_cols] 
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce').dt.date
-        
-        # กรองแถวที่วันที่เป็น NaT (เผื่อมีขยะ)
         df = df.dropna(subset=['Date'])
         return df
-    except Exception as e:
+    except Exception:
         return pd.DataFrame(columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
 
 def send_data_to_sheet(payload):
@@ -145,11 +140,12 @@ if page == "1. บันทึกและภาพรวม":
         c3.metric("คงเหลือ", f"{inc-exp:,.2f}")
 
 # ==========================================
-# หน้า 2: จัดสรรและโอนงบ (แก้ไข HTML Indentation)
+# หน้า 2: จัดสรรและโอนงบ (เลือกดูทีละรายการ)
 # ==========================================
 elif page == "2. จัดสรรและโอนงบ":
     st.header("🧱 บริหารงบประมาณ")
 
+    # ส่วนโอนงบ
     with st.expander("💸 โอนย้ายงบประมาณ (Transfer)"):
         c1, c2 = st.columns(2)
         with c1: from_c = st.selectbox("จาก", expense_cats)
@@ -170,64 +166,77 @@ elif page == "2. จัดสรรและโอนงบ":
 
     st.markdown("---")
     
-    # --- แสดงตารางแบบใหม่ (HTML Table Corrected) ---
     if not st.session_state.df.empty:
         sum_pct = sum(budget_rules.values())
         all_rules = budget_rules.copy()
         all_rules["อื่น ๆ"] = 100 - sum_pct
         
-        cols = st.columns(2)
+        # --- ส่วนเลือกรายการที่จะดู (Select Box) ---
+        st.subheader("🔍 ตรวจสอบสถานะงบประมาณ")
+        selected_cat = st.selectbox("เลือกรายการที่ต้องการดู:", list(all_rules.keys()))
         
-        for i, (cat_name, pct) in enumerate(all_rules.items()):
-            with cols[i % 2]:
-                st.subheader(f"📌 {cat_name} ({pct}%)")
-                
-                html_rows = ""
-                total_budget = 0
-                total_spent = 0
-                
-                # 1. รายรับ (สีเขียว)
-                incomes = st.session_state.df[st.session_state.df['Type'] == "รายรับ"]
-                for _, row in incomes.iterrows():
-                    allocated = row['Amount'] * (pct / 100)
-                    if allocated > 0:
-                        total_budget += allocated
-                        # เขียน HTML บรรทัดเดียวติดกันเพื่อป้องกัน Markdown แปลงเป็น Code
-                        html_rows += f"<tr class='trans-row bg-green'><td class='trans-cell'>จัดสรรจาก {row['Category']}</td><td class='trans-cell trans-amount'>+{allocated:,.2f}</td></tr>"
+        # ดึงค่า % ของรายการที่เลือก
+        pct = all_rules[selected_cat]
+        cat_name = selected_cat
 
-                # 2. โอน (ฟ้า/เหลือง)
-                transfers = st.session_state.df[st.session_state.df['Type'] == "โอนงบ"]
-                for _, row in transfers.iterrows():
-                    if f"To:{cat_name}" in row['Category']: 
-                        src = row['Category'].split(",")[0].replace("From:", "")
-                        total_budget += row['Amount']
-                        html_rows += f"<tr class='trans-row bg-blue'><td class='trans-cell'>โอนมาจาก {src}</td><td class='trans-cell trans-amount'>+{row['Amount']:,.2f}</td></tr>"
-                    
-                    if f"From:{cat_name}" in row['Category']: 
-                        dst = row['Category'].split(",")[1].replace("To:", "")
-                        total_budget -= row['Amount']
-                        html_rows += f"<tr class='trans-row bg-yellow'><td class='trans-cell'>โอนไปยัง {dst}</td><td class='trans-cell trans-amount'>-{row['Amount']:,.2f}</td></tr>"
+        st.info(f"กำลังแสดงข้อมูล: **{cat_name}** (ได้รับจัดสรร {pct}%)")
+        
+        # --- คำนวณเฉพาะรายการที่เลือก ---
+        html_rows = ""
+        total_budget = 0
+        total_spent = 0
+        
+        for index, row in st.session_state.df.iterrows():
+            
+            note_txt = ""
+            if pd.notna(row['Note']) and str(row['Note']).strip() != "":
+                note_txt = f" ({row['Note']})"
 
-                # 3. รายจ่าย (สีแดง)
-                expenses = st.session_state.df[(st.session_state.df['Type'] == "รายจ่าย") & (st.session_state.df['Category'] == cat_name)]
-                for _, row in expenses.iterrows():
-                    total_spent += row['Amount']
-                    html_rows += f"<tr class='trans-row bg-red'><td class='trans-cell'>จ่ายค่า {row['Category']}</td><td class='trans-cell trans-amount'>-{row['Amount']:,.2f}</td></tr>"
-                
-                if html_rows == "":
-                    html_rows = "<tr><td colspan='2' style='padding:10px; text-align:center; color:#999;'>ยังไม่มีรายการ</td></tr>"
+            # 1. รายรับ
+            if row['Type'] == "รายรับ":
+                allocated = row['Amount'] * (pct / 100)
+                if allocated > 0:
+                    total_budget += allocated
+                    html_rows += f"<tr class='trans-row bg-green'><td class='trans-cell'>จัดสรรจาก {row['Category']}{note_txt}</td><td class='trans-cell trans-amount'>+{allocated:,.2f}</td></tr>"
 
-                # แสดงตาราง (ชิดซ้ายไม่มีย่อหน้า)
-                st.markdown(f"""<table class='trans-table'>{html_rows}</table>""", unsafe_allow_html=True)
+            # 2. โอนงบ
+            elif row['Type'] == "โอนงบ":
+                if f"To:{cat_name}" in row['Category']: # รับโอน
+                    src = row['Category'].split(",")[0].replace("From:", "")
+                    total_budget += row['Amount']
+                    html_rows += f"<tr class='trans-row bg-blue'><td class='trans-cell'>โอนมาจาก {src}{note_txt}</td><td class='trans-cell trans-amount'>+{row['Amount']:,.2f}</td></tr>"
                 
-                # สรุปยอด
-                remaining = total_budget - total_spent
-                if remaining >= 0:
-                    st.success(f"คงเหลือ: {remaining:,.2f}")
-                else:
-                    st.error(f"เกินงบ: {remaining:,.2f}")
-                
-                st.markdown("---")
+                elif f"From:{cat_name}" in row['Category']: # โอนออก
+                    dst = row['Category'].split(",")[1].replace("To:", "")
+                    total_budget -= row['Amount']
+                    html_rows += f"<tr class='trans-row bg-yellow'><td class='trans-cell'>โอนไปยัง {dst}{note_txt}</td><td class='trans-cell trans-amount'>-{row['Amount']:,.2f}</td></tr>"
+
+            # 3. รายจ่าย
+            elif row['Type'] == "รายจ่าย" and row['Category'] == cat_name:
+                total_spent += row['Amount']
+                html_rows += f"<tr class='trans-row bg-red'><td class='trans-cell'>จ่ายค่า {row['Category']}{note_txt}</td><td class='trans-cell trans-amount'>-{row['Amount']:,.2f}</td></tr>"
+        
+        if html_rows == "":
+            html_rows = "<tr><td colspan='2' style='padding:20px; text-align:center; color:#999;'>ยังไม่มีรายการเคลื่อนไหว</td></tr>"
+
+        # แสดงตาราง
+        st.markdown(f"""<table class='trans-table'>{html_rows}</table>""", unsafe_allow_html=True)
+        
+        # สรุปยอด (ทำให้ตัวใหญ่เห็นชัดๆ)
+        remaining = total_budget - total_spent
+        
+        c_res1, c_res2 = st.columns(2)
+        with c_res1:
+            st.metric("งบสุทธิ (บาท)", f"{total_budget:,.2f}")
+        with c_res2:
+            st.metric("ใช้ไปจริง (บาท)", f"{total_spent:,.2f}")
+            
+        if remaining >= 0:
+            st.success(f"✅ **คงเหลือ:** {remaining:,.2f} บาท")
+        else:
+            st.error(f"⚠️ **เกินงบ:** {remaining:,.2f} บาท")
+        
+        st.markdown("---")
 
 # ==========================================
 # หน้า 3: ประวัติ
@@ -237,7 +246,14 @@ elif page == "3. ประวัติและแก้ไขข้อมูล
     if not st.session_state.df.empty:
         df_show = st.session_state.df.sort_values(by="Date", ascending=False)
         for _, row in df_show.iterrows():
-            with st.expander(f"{row['Date']} | {row['Category']} | {row['Amount']:,.2f}"):
+            
+            note_display = f" | 📝 {row['Note']}" if pd.notna(row['Note']) and row['Note'] != "" else ""
+            title_text = f"{row['Date']} | {row['Category']} | {row['Amount']:,.2f} บาท{note_display}"
+            
+            with st.expander(title_text):
+                st.write(f"**ประเภท:** {row['Type']}")
+                st.write(f"**หมายเหตุ:** {row['Note']}")
+                
                 if st.button("ลบรายการ", key=f"del_{row['ID']}"):
                     if send_data_to_sheet({"action": "delete", "id": row['ID']}):
                         st.success("ลบแล้ว")
