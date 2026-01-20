@@ -51,23 +51,44 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- ฟังก์ชันจัดการข้อมูล (Real-time) ---
+# แก้ไขเฉพาะฟังก์ชัน load_data นี้ครับ (อันอื่นเหมือนเดิม)
 def load_data():
     try:
-        # ดึง JSON จาก Apps Script โดยตรง (ไม่ต้องรอ CSV update)
+        # ลองดึงข้อมูล
         response = requests.get(WEB_APP_URL)
-        data = response.json()
+        
+        # เช็คว่าเชื่อมต่อได้ไหม
+        if response.status_code != 200:
+            st.error(f"เชื่อมต่อไม่ได้ Error Code: {response.status_code}")
+            return pd.DataFrame(columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
+            
+        # ลองแปลงเป็นข้อมูล
+        try:
+            data = response.json()
+        except:
+            st.error("เนื้อหาที่ได้ไม่ใช่ข้อมูล (อาจจะลืมตั้งค่า Anyone ใน Apps Script)")
+            st.write(response.text) # แสดงสิ่งที่ได้มา
+            return pd.DataFrame(columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
+            
         df = pd.DataFrame(data)
         
-        expected_cols = ["ID", "Date", "Type", "Category", "Amount", "Note"]
         if df.empty:
-            return pd.DataFrame(columns=expected_cols)
+            return pd.DataFrame(columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
             
-        # จัดลำดับคอลัมน์และแปลงวันที่
+        # จัดลำดับคอลัมน์
+        expected_cols = ["ID", "Date", "Type", "Category", "Amount", "Note"]
+        # เช็คว่ามีคอลัมน์ครบไหม
+        missing_cols = [c for c in expected_cols if c not in df.columns]
+        if missing_cols:
+            st.error(f"หัวตารางใน Google Sheet ไม่ตรงครับ ขาดคอลัมน์: {missing_cols}")
+            return pd.DataFrame(columns=expected_cols)
+
         df = df[expected_cols] 
-        df['Date'] = pd.to_datetime(df['Date']).dt.date # แปลงเป็น Date object แท้ๆ
+        df['Date'] = pd.to_datetime(df['Date']).dt.date
         return df
+        
     except Exception as e:
-        # กรณี Error หรือยังไม่มีข้อมูล
+        st.error(f"เกิดข้อผิดพลาดร้ายแรง: {e}")
         return pd.DataFrame(columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
 
 def send_data_to_sheet(payload):
