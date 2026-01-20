@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 
 # ==========================================
-# 🔧 ส่วนตั้งค่า (วางลิงก์ Apps Script อันเดียวจบ)
+# 🔧 ส่วนตั้งค่า (วางลิงก์ Apps Script ของคุณที่นี่)
 # ==========================================
 WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzbEluMkn-mnr74QYavb5K7AbnvOAy-YkvYrsytsFNfq8bft8ACQnAPWv9akUdkycU/exec"
 # ==========================================
@@ -28,67 +28,53 @@ st.markdown("""
         margin-bottom: 20px;
         border-radius: 8px;
         overflow: hidden;
+        border: 1px solid #eee;
     }
     .trans-row {
         border-bottom: 1px solid #eee;
     }
     .trans-cell {
         padding: 10px 15px;
-        font-size: 15px;
-        color: #333; /* สีตัวอักษรเข้ม อ่านง่าย */
+        font-size: 14px;
+        color: #333;
     }
     .trans-amount {
         text-align: right;
         font-weight: bold;
     }
     /* สีพื้นหลังพาสเทล (อ่านง่าย) */
-    .bg-green { background-color: #d1e7dd; color: #0f5132; }   /* รายรับ */
-    .bg-red { background-color: #f8d7da; color: #842029; }     /* รายจ่าย */
-    .bg-blue { background-color: #cff4fc; color: #055160; }    /* โอนเข้า */
-    .bg-yellow { background-color: #fff3cd; color: #664d03; }  /* โอนออก */
+    .bg-green { background-color: #d1e7dd !important; color: #0f5132 !important; }   /* รายรับ */
+    .bg-red { background-color: #f8d7da !important; color: #842029 !important; }     /* รายจ่าย */
+    .bg-blue { background-color: #cff4fc !important; color: #055160 !important; }    /* โอนเข้า */
+    .bg-yellow { background-color: #fff3cd !important; color: #664d03 !important; }  /* โอนออก */
     
 </style>
 """, unsafe_allow_html=True)
 
 # --- ฟังก์ชันจัดการข้อมูล (Real-time) ---
-# แก้ไขเฉพาะฟังก์ชัน load_data นี้ครับ (อันอื่นเหมือนเดิม)
 def load_data():
     try:
-        # ลองดึงข้อมูล
         response = requests.get(WEB_APP_URL)
-        
-        # เช็คว่าเชื่อมต่อได้ไหม
-        if response.status_code != 200:
-            st.error(f"เชื่อมต่อไม่ได้ Error Code: {response.status_code}")
-            return pd.DataFrame(columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
-            
-        # ลองแปลงเป็นข้อมูล
-        try:
-            data = response.json()
-        except:
-            st.error("เนื้อหาที่ได้ไม่ใช่ข้อมูล (อาจจะลืมตั้งค่า Anyone ใน Apps Script)")
-            st.write(response.text) # แสดงสิ่งที่ได้มา
-            return pd.DataFrame(columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
-            
+        data = response.json()
         df = pd.DataFrame(data)
         
-        if df.empty:
-            return pd.DataFrame(columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
-            
-        # จัดลำดับคอลัมน์
         expected_cols = ["ID", "Date", "Type", "Category", "Amount", "Note"]
-        # เช็คว่ามีคอลัมน์ครบไหม
-        missing_cols = [c for c in expected_cols if c not in df.columns]
-        if missing_cols:
-            st.error(f"หัวตารางใน Google Sheet ไม่ตรงครับ ขาดคอลัมน์: {missing_cols}")
+        if df.empty:
             return pd.DataFrame(columns=expected_cols)
+            
+        # เช็คคอลัมน์และแปลงวันที่
+        # ถ้าคอลัมน์ขาดเกิน ให้เติมให้ครบป้องกัน Error
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = ""
 
         df = df[expected_cols] 
-        df['Date'] = pd.to_datetime(df['Date']).dt.date
-        return df
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce').dt.date
         
+        # กรองแถวที่วันที่เป็น NaT (เผื่อมีขยะ)
+        df = df.dropna(subset=['Date'])
+        return df
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดร้ายแรง: {e}")
         return pd.DataFrame(columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
 
 def send_data_to_sheet(payload):
@@ -99,7 +85,7 @@ def send_data_to_sheet(payload):
         return False
 
 # โหลดข้อมูล
-if 'df' not in st.session_state or st.sidebar.button("🔄 ดึงข้อมูลล่าสุด (Real-time)"):
+if 'df' not in st.session_state or st.sidebar.button("🔄 ดึงข้อมูลล่าสุด"):
     st.session_state.df = load_data()
 
 # --- กฎงบประมาณ ---
@@ -143,7 +129,7 @@ if page == "1. บันทึกและภาพรวม":
                 with st.spinner('กำลังบันทึก...'):
                     if send_data_to_sheet(payload):
                         st.success("บันทึกเรียบร้อย!")
-                        st.session_state.df = load_data() # ดึงข้อมูลใหม่ทันที
+                        st.session_state.df = load_data()
                         st.rerun()
                     else:
                         st.error("เกิดข้อผิดพลาดในการเชื่อมต่อ")
@@ -159,7 +145,7 @@ if page == "1. บันทึกและภาพรวม":
         c3.metric("คงเหลือ", f"{inc-exp:,.2f}")
 
 # ==========================================
-# หน้า 2: จัดสรรและโอนงบ (ตารางสวยงาม)
+# หน้า 2: จัดสรรและโอนงบ (แก้ไข HTML Indentation)
 # ==========================================
 elif page == "2. จัดสรรและโอนงบ":
     st.header("🧱 บริหารงบประมาณ")
@@ -184,7 +170,7 @@ elif page == "2. จัดสรรและโอนงบ":
 
     st.markdown("---")
     
-    # --- แสดงตารางแบบใหม่ (HTML Table) ---
+    # --- แสดงตารางแบบใหม่ (HTML Table Corrected) ---
     if not st.session_state.df.empty:
         sum_pct = sum(budget_rules.values())
         all_rules = budget_rules.copy()
@@ -196,7 +182,6 @@ elif page == "2. จัดสรรและโอนงบ":
             with cols[i % 2]:
                 st.subheader(f"📌 {cat_name} ({pct}%)")
                 
-                # สร้าง HTML string สำหรับตาราง
                 html_rows = ""
                 total_budget = 0
                 total_spent = 0
@@ -207,53 +192,33 @@ elif page == "2. จัดสรรและโอนงบ":
                     allocated = row['Amount'] * (pct / 100)
                     if allocated > 0:
                         total_budget += allocated
-                        html_rows += f"""
-                        <tr class='trans-row bg-green'>
-                            <td class='trans-cell'>จัดสรรจาก {row['Category']}</td>
-                            <td class='trans-cell trans-amount'>+{allocated:,.2f}</td>
-                        </tr>"""
+                        # เขียน HTML บรรทัดเดียวติดกันเพื่อป้องกัน Markdown แปลงเป็น Code
+                        html_rows += f"<tr class='trans-row bg-green'><td class='trans-cell'>จัดสรรจาก {row['Category']}</td><td class='trans-cell trans-amount'>+{allocated:,.2f}</td></tr>"
 
                 # 2. โอน (ฟ้า/เหลือง)
                 transfers = st.session_state.df[st.session_state.df['Type'] == "โอนงบ"]
                 for _, row in transfers.iterrows():
-                    if f"To:{cat_name}" in row['Category']: # รับโอน (ฟ้า)
+                    if f"To:{cat_name}" in row['Category']: 
                         src = row['Category'].split(",")[0].replace("From:", "")
                         total_budget += row['Amount']
-                        html_rows += f"""
-                        <tr class='trans-row bg-blue'>
-                            <td class='trans-cell'>โอนมาจาก {src}</td>
-                            <td class='trans-cell trans-amount'>+{row['Amount']:,.2f}</td>
-                        </tr>"""
+                        html_rows += f"<tr class='trans-row bg-blue'><td class='trans-cell'>โอนมาจาก {src}</td><td class='trans-cell trans-amount'>+{row['Amount']:,.2f}</td></tr>"
                     
-                    if f"From:{cat_name}" in row['Category']: # โอนออก (เหลือง)
+                    if f"From:{cat_name}" in row['Category']: 
                         dst = row['Category'].split(",")[1].replace("To:", "")
                         total_budget -= row['Amount']
-                        html_rows += f"""
-                        <tr class='trans-row bg-yellow'>
-                            <td class='trans-cell'>โอนไปยัง {dst}</td>
-                            <td class='trans-cell trans-amount'>-{row['Amount']:,.2f}</td>
-                        </tr>"""
+                        html_rows += f"<tr class='trans-row bg-yellow'><td class='trans-cell'>โอนไปยัง {dst}</td><td class='trans-cell trans-amount'>-{row['Amount']:,.2f}</td></tr>"
 
                 # 3. รายจ่าย (สีแดง)
                 expenses = st.session_state.df[(st.session_state.df['Type'] == "รายจ่าย") & (st.session_state.df['Category'] == cat_name)]
                 for _, row in expenses.iterrows():
                     total_spent += row['Amount']
-                    html_rows += f"""
-                    <tr class='trans-row bg-red'>
-                        <td class='trans-cell'>จ่ายค่า {row['Category']}</td>
-                        <td class='trans-cell trans-amount'>-{row['Amount']:,.2f}</td>
-                    </tr>"""
+                    html_rows += f"<tr class='trans-row bg-red'><td class='trans-cell'>จ่ายค่า {row['Category']}</td><td class='trans-cell trans-amount'>-{row['Amount']:,.2f}</td></tr>"
                 
-                # ถ้าไม่มีข้อมูล ให้แสดงว่าว่าง
                 if html_rows == "":
                     html_rows = "<tr><td colspan='2' style='padding:10px; text-align:center; color:#999;'>ยังไม่มีรายการ</td></tr>"
 
-                # แสดงตาราง
-                st.markdown(f"""
-                <table class='trans-table'>
-                    {html_rows}
-                </table>
-                """, unsafe_allow_html=True)
+                # แสดงตาราง (ชิดซ้ายไม่มีย่อหน้า)
+                st.markdown(f"""<table class='trans-table'>{html_rows}</table>""", unsafe_allow_html=True)
                 
                 # สรุปยอด
                 remaining = total_budget - total_spent
