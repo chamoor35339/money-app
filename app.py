@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import requests
 import uuid
 from datetime import datetime
@@ -14,11 +13,32 @@ WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzbEluMkn-mnr74QYavb5K7Ab
 
 st.set_page_config(page_title="Chanon Budget Pro", layout="wide", page_icon="💰")
 
-# --- CSS ปรับแต่งความสวยงาม ---
+# --- CSS ปรับแต่ง (ซ่อนปุ่ม +/- และปรับสี) ---
 st.markdown("""
 <style>
-    .stMetric {background-color: #f0f2f6; padding: 10px; border-radius: 10px;}
-    div[data-testid="stExpander"] {border: 1px solid #e0e0e0; border-radius: 5px;}
+    /* ซ่อนปุ่ม +/- ในช่องกรอกตัวเลข */
+    button[title="Increment"] {display: none;}
+    button[title="Decrement"] {display: none;}
+    input[type=number] {-moz-appearance: textfield;}
+    
+    /* ปรับแต่งการ์ดแสดงผล */
+    .stMetric {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        padding: 10px;
+        border-radius: 8px;
+        color: #333;
+    }
+    
+    /* ปรับสีปุ่มบันทึก */
+    div.stButton > button:first-child {
+        background-color: #4CAF50;
+        color: white;
+        border-radius: 8px;
+        height: 50px;
+        width: 100%;
+        font-size: 18px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -26,7 +46,6 @@ st.markdown("""
 def load_data():
     try:
         df = pd.read_csv(CSV_URL)
-        # ตั้งชื่อคอลัมน์ให้ชัวร์
         expected_cols = ["ID", "Date", "Type", "Category", "Amount", "Note"]
         if len(df.columns) >= 6:
             df.columns = expected_cols
@@ -42,27 +61,19 @@ def send_data_to_sheet(payload):
     except:
         return False
 
-# โหลดข้อมูล
+# โหลดข้อมูล (ใช้ session state เพื่อให้ข้อมูลไม่หายเวลากดปุ่ม)
 if 'df' not in st.session_state:
     st.session_state.df = load_data()
 
-# --- กฎงบประมาณใหม่ (ตามข้อ 2) ---
+# --- กฎงบประมาณ ---
 budget_rules = {
-    "ค่าผ่อนคอนโด": 17.0,
-    "หนี้สหกรณ์": 18.0,
-    "หนี้บัตรเครดิต": 29.0,
-    "ค่าน้ำมัน": 7.5,
-    "ค่าไฟ": 5.7,
-    "ค่าโทรศัพท์": 5.0,
-    "ค่าใช้จ่ายในครอบครัว": 7.6,
-    "ค่าใช้จ่ายของตนเอง": 9.4,
-    "ค่าน้ำ": 0.38
-    # ส่วนที่เหลือ -> อื่น ๆ
+    "ค่าผ่อนคอนโด": 17.0, "หนี้สหกรณ์": 18.0, "หนี้บัตรเครดิต": 29.0,
+    "ค่าน้ำมัน": 7.5, "ค่าไฟ": 5.7, "ค่าโทรศัพท์": 5.0,
+    "ค่าใช้จ่ายในครอบครัว": 7.6, "ค่าใช้จ่ายของตนเอง": 9.4, "ค่าน้ำ": 0.38
 }
 
 # รายการ Dropdown
 income_cats = ["เงินเดือน", "เงินค่าจ้าง", "เงินค่าเช่า", "เงินปันผล", "อื่น ๆ"]
-# สร้างรายการรายจ่ายจากกฎ + อื่นๆ
 expense_cats = list(budget_rules.keys()) + ["อื่น ๆ"]
 
 # --- Sidebar ---
@@ -78,260 +89,213 @@ if st.sidebar.button("🔄 รีโหลดข้อมูลล่าสุ�
 # หน้า 1: บันทึกและภาพรวม
 # ==========================================
 if page == "1. บันทึกและภาพรวม":
-    st.header("📝 บันทึกรายการประจำวัน")
+    st.header("📝 บันทึกรายการ (กรอกง่าย)")
     
-    with st.form("entry_form", clear_on_submit=True):
-        c1, c2, c3 = st.columns(3)
-        with c1: d = st.date_input("วันที่", datetime.now())
-        with c2: t = st.selectbox("ประเภท", ["รายรับ", "รายจ่าย"])
-        with c3: a = st.number_input("จำนวนเงิน", min_value=0.0, step=0.1)
+    # ส่วนกรอกข้อมูล (เอา st.form ออก เพื่อให้ Dropdown เปลี่ยนตาม Type ทันที)
+    # ใช้ Container เพื่อจัดกลุ่ม
+    with st.container():
+        st.info("กรุณากรอกข้อมูลตามลำดับ")
         
-        # แก้ไขข้อ 1: แสดงรายการรายจ่ายให้ถูกต้อง
-        if t == "รายรับ":
-            cat = st.selectbox("รายการ", income_cats)
+        # 1. วันที่
+        entry_date = st.date_input("1. วันที่", datetime.now())
+        
+        # 2. ประเภท
+        entry_type = st.radio("2. ประเภท", ["รายรับ", "รายจ่าย"], horizontal=True)
+        
+        # 3. รายการ (เปลี่ยนตามประเภทอัตโนมัติ)
+        if entry_type == "รายรับ":
+            entry_cat = st.selectbox("3. รายการ", income_cats)
         else:
-            cat = st.selectbox("รายการ", expense_cats)
-            
-        n = st.text_input("หมายเหตุ")
+            entry_cat = st.selectbox("3. รายการ", expense_cats)
         
-        if st.form_submit_button("บันทึกข้อมูล"):
-            new_id = str(uuid.uuid4()) # สร้าง ID ไม่ซ้ำ
-            payload = {
-                "action": "add",
-                "id": new_id,
-                "date": d.strftime("%Y-%m-%d"),
-                "type": t,
-                "category": cat,
-                "amount": a,
-                "note": n
-            }
-            if send_data_to_sheet(payload):
-                st.success("บันทึกสำเร็จ!")
-                # อัปเดตข้อมูล Local ทันที
-                new_row = pd.DataFrame([[new_id, pd.to_datetime(d), t, cat, a, n]], 
-                                     columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
-                st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
-                st.rerun()
+        # 4. จำนวนเงิน (step=0 ทำให้ไม่มีปุ่ม +/-)
+        entry_amount = st.number_input("4. จำนวนเงิน (บาท)", min_value=0.0, step=0.0, format="%.2f")
+        
+        entry_note = st.text_input("หมายเหตุ (ถ้ามี)")
+        
+        # ปุ่มบันทึกขนาดใหญ่
+        if st.button("✅ ยืนยันการบันทึก"):
+            if entry_amount > 0:
+                new_id = str(uuid.uuid4())
+                payload = {
+                    "action": "add",
+                    "id": new_id,
+                    "date": entry_date.strftime("%Y-%m-%d"),
+                    "type": entry_type,
+                    "category": entry_cat,
+                    "amount": entry_amount,
+                    "note": entry_note
+                }
+                
+                # แสดงสถานะกำลังบันทึก
+                with st.spinner('กำลังส่งข้อมูลไป Google Sheets...'):
+                    if send_data_to_sheet(payload):
+                        st.success("บันทึกสำเร็จ!")
+                        # อัปเดตข้อมูลในแอปทันที
+                        new_row = pd.DataFrame([[new_id, pd.to_datetime(entry_date), entry_type, entry_cat, entry_amount, entry_note]], 
+                                             columns=["ID", "Date", "Type", "Category", "Amount", "Note"])
+                        st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+                        st.rerun()
+                    else:
+                        st.error("เกิดข้อผิดพลาด! กรุณาตรวจสอบลิงก์ Web App URL หรือสิทธิ์การเข้าถึง (Anyone)")
             else:
-                st.error("บันทึกไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ต")
+                st.warning("กรุณากรอกจำนวนเงินมากกว่า 0")
 
-    # Dashboard
     st.markdown("---")
+    
+    # Dashboard (ปรับสีให้ชัดเจน)
     st.subheader("📊 สรุปภาพรวม")
     if not st.session_state.df.empty:
-        # กรองเอาเฉพาะ รายรับ และ รายจ่าย (ไม่เอาโอนงบ)
         valid_df = st.session_state.df[st.session_state.df['Type'].isin(['รายรับ', 'รายจ่าย'])]
-        
         inc = valid_df[valid_df['Type'] == "รายรับ"]['Amount'].sum()
         exp = valid_df[valid_df['Type'] == "รายจ่าย"]['Amount'].sum()
         bal = inc - exp
         
-        m1, m2, m3 = st.columns(3)
-        m1.metric("รายรับรวม", f"{inc:,.2f}")
-        m2.metric("รายจ่ายรวม", f"{exp:,.2f}")
-        m3.metric("คงเหลือสุทธิ", f"{bal:,.2f}")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.info(f"💰 รายรับรวม\n# {inc:,.2f} บาท")
+        with c2:
+            st.warning(f"💸 รายจ่ายรวม\n# {exp:,.2f} บาท")
+        with c3:
+            if bal >= 0:
+                st.success(f"✅ คงเหลือสุทธิ\n# {bal:,.2f} บาท")
+            else:
+                st.error(f"⚠️ ติดลบ\n# {bal:,.2f} บาท")
 
 # ==========================================
-# หน้า 2: จัดสรรและโอนงบ (แก้ไขข้อ 2, 3, 4)
+# หน้า 2: จัดสรรและโอนงบ
 # ==========================================
 elif page == "2. จัดสรรและโอนงบ":
-    st.header("🧱 บริหารจัดการงบประมาณ")
+    st.header("🧱 กระเป๋าเงินและการจัดสรร")
     
-    # 1. ส่วนโอนงบ (ข้อ 3)
-    with st.expander("💸 **เมนูโอนย้ายงบประมาณ (Transfer Budget)**"):
-        with st.form("transfer_form"):
-            st.write("เลือกรายการที่จะโอนงบหากัน")
-            tc1, tc2, tc3 = st.columns(3)
-            with tc1: from_cat = st.selectbox("ต้นทาง (ลด)", expense_cats)
-            with tc2: to_cat = st.selectbox("ปลายทาง (เพิ่ม)", expense_cats)
-            with tc3: trans_amount = st.number_input("จำนวนเงินที่โอน", min_value=0.0)
-            
-            if st.form_submit_button("ยืนยันการโอน"):
-                if from_cat == to_cat:
-                    st.error("ต้นทางและปลายทางต้องไม่เหมือนกัน")
-                else:
-                    new_id = str(uuid.uuid4())
-                    # บันทึกเป็น Type พิเศษชื่อ "โอนงบ"
-                    # Category format: "From:AAA,To:BBB"
-                    cat_str = f"From:{from_cat},To:{to_cat}"
-                    payload = {
-                        "action": "add",
-                        "id": new_id,
-                        "date": datetime.now().strftime("%Y-%m-%d"),
-                        "type": "โอนงบ",
-                        "category": cat_str,
-                        "amount": trans_amount,
-                        "note": "โอนย้ายงบประมาณ"
-                    }
-                    if send_data_to_sheet(payload):
-                        st.success(f"โอนงบ {trans_amount} จาก {from_cat} ไป {to_cat} สำเร็จ!")
-                        st.cache_data.clear() # บังคับโหลดใหม่เพื่อให้ตารางอัปเดต
-                        st.rerun()
+    # ส่วนโอนงบ (ปรับ Input ให้กรอกง่าย)
+    with st.expander("💸 **เมนูโอนย้ายงบประมาณ (Transfer)**", expanded=True):
+        col_t1, col_t2 = st.columns(2)
+        with col_t1: from_cat = st.selectbox("ต้นทาง (ดึงเงินออก)", expense_cats)
+        with col_t2: to_cat = st.selectbox("ปลายทาง (ใส่เงินเข้า)", expense_cats)
+        
+        # Input แบบไม่มีปุ่ม +/-
+        trans_amount = st.number_input("จำนวนเงินที่ต้องการโอน", min_value=0.0, step=0.0, format="%.2f")
+        
+        if st.button("ยืนยันการโอนย้าย"):
+            if trans_amount > 0 and from_cat != to_cat:
+                new_id = str(uuid.uuid4())
+                cat_str = f"From:{from_cat},To:{to_cat}"
+                payload = {
+                    "action": "add",
+                    "id": new_id,
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "type": "โอนงบ",
+                    "category": cat_str,
+                    "amount": trans_amount,
+                    "note": "โอนย้ายงบประมาณ"
+                }
+                if send_data_to_sheet(payload):
+                    st.success("โอนเงินเรียบร้อย!")
+                    st.rerun()
+            else:
+                st.error("กรุณาตรวจสอบจำนวนเงินและรายการต้นทาง/ปลายทาง")
 
     st.markdown("---")
 
-    # 2. ตารางและกราฟ (ข้อ 4)
+    # ส่วนแสดงกราฟและตารางจิ๋ว (ตามข้อ 6)
     if not st.session_state.df.empty:
         total_income = st.session_state.df[st.session_state.df['Type'] == "รายรับ"]['Amount'].sum()
         
-        # เตรียมข้อมูลสรุป
-        budget_data = []
         sum_pct = sum(budget_rules.values())
         all_rules = budget_rules.copy()
-        all_rules["อื่น ๆ"] = 100 - sum_pct # ส่วนที่เหลือ
+        all_rules["อื่น ๆ"] = 100 - sum_pct
 
-        # ดึงข้อมูลการโอน
         transfers = st.session_state.df[st.session_state.df['Type'] == "โอนงบ"]
 
-        for cat, pct in all_rules.items():
-            # 1. งบตั้งต้น (Initial Budget)
-            initial = total_income * (pct / 100)
+        st.subheader("สถานะงบประมาณแต่ละรายการ")
+        cols = st.columns(3) # แสดงทีละ 3 การ์ด
+        
+        for i, (cat, pct) in enumerate(all_rules.items()):
+            # 1. คำนวณตัวเลข
+            initial_budget = total_income * (pct / 100) # สีเขียว (จัดสรรจากรายได้)
             
-            # 2. คำนวณยอดโอน (Transfer Effect)
-            # โอนเข้า (To: cat)
-            in_amt = 0
-            # โอนออก (From: cat)
-            out_amt = 0
-            
+            # หาการโอนเข้า (สีฟ้า) และ ออก (สีเหลือง)
+            transfer_in = 0
+            transfer_out = 0
             if not transfers.empty:
-                # Loop หาแบบบ้านๆ แต่มั่นใจ
-                for index, row in transfers.iterrows():
-                    if f"To:{cat}" in row['Category']:
-                        in_amt += row['Amount']
-                    if f"From:{cat}" in row['Category']:
-                        out_amt += row['Amount']
+                for idx, row in transfers.iterrows():
+                    if f"To:{cat}" in row['Category']: transfer_in += row['Amount']
+                    if f"From:{cat}" in row['Category']: transfer_out += row['Amount']
             
-            net_transfer = in_amt - out_amt
-            final_budget = initial + net_transfer
-            
-            # 3. ใช้ไปจริง (Spent)
+            # หาค่าใช้จ่ายจริง (สีแดง)
             spent = st.session_state.df[
                 (st.session_state.df['Type'] == "รายจ่าย") & 
                 (st.session_state.df['Category'] == cat)
             ]['Amount'].sum()
             
-            remaining = final_budget - spent
-            status = "ปกติ" if remaining >= 0 else "เกินงบ"
+            net_budget = initial_budget + transfer_in - transfer_out
+            remaining = net_budget - spent
             
-            budget_data.append({
-                "รายการ": cat,
-                "สัดส่วน (%)": pct,
-                "งบตั้งต้น": initial,
-                "รับโอน (+)/โอนออก (-)": net_transfer,
-                "งบสุทธิ": final_budget,
-                "ใช้ไปจริง": spent,
-                "คงเหลือ": remaining,
-                "สถานะ": status
-            })
-            
-        # แสดงตารางสรุป (ข้อ 4)
-        st.subheader("📋 ตารางรายละเอียดงบประมาณ")
-        budget_df = pd.DataFrame(budget_data)
-        # จัดรูปแบบตัวเลขให้สวยงาม
-        st.dataframe(budget_df.style.format({
-            "งบตั้งต้น": "{:,.2f}", 
-            "รับโอน (+)/โอนออก (-)": "{:,.2f}",
-            "งบสุทธิ": "{:,.2f}",
-            "ใช้ไปจริง": "{:,.2f}",
-            "คงเหลือ": "{:,.2f}"
-        }), use_container_width=True)
-
-        # แสดงกราฟแท่งแบบ Progress
-        st.subheader("กราฟติดตามสถานะ")
-        cols = st.columns(3)
-        for i, row in budget_df.iterrows():
+            # 2. แสดงผล Card
             with cols[i % 3]:
-                st.markdown(f"**{row['รายการ']}**")
+                # ส่วนหัวการ์ด
+                status_color = "green" if remaining >= 0 else "red"
+                st.markdown(f"#### :{status_color}[{cat}]")
                 
-                # Progress Bar calculation
-                if row['งบสุทธิ'] > 0:
-                    prog = min(1.0, max(0.0, row['ใช้ไปจริง'] / row['งบสุทธิ']))
+                # Progress Bar
+                if net_budget > 0:
+                    prog = min(1.0, max(0.0, spent / net_budget))
                 else:
-                    prog = 1.0 if row['ใช้ไปจริง'] > 0 else 0.0
-                
+                    prog = 1.0 if spent > 0 else 0.0
                 st.progress(prog)
-                if row['คงเหลือ'] >= 0:
-                    st.caption(f"เหลือ: {row['คงเหลือ']:,.2f} บาท")
+                
+                if remaining >= 0:
+                    st.caption(f"คงเหลือ: {remaining:,.2f} บาท")
                 else:
-                    st.error(f"เกินงบ: {abs(row['คงเหลือ']):,.2f} บาท")
+                    st.error(f"เกินงบ: {abs(remaining):,.2f} บาท")
+
+                # 3. ตารางจิ๋ว (Mini Breakdown)
+                # สร้าง DataFrame สำหรับตาราง
+                breakdown_data = [
+                    {"รายการ": "ได้รับจัดสรร (รายได้)", "จำนวน": initial_budget, "สี": "🟢 เขียว"},
+                    {"รายการ": "รับโอนงบเข้า", "จำนวน": transfer_in, "สี": "🔵 ฟ้า"},
+                    {"รายการ": "โอนงบออก", "จำนวน": transfer_out, "สี": "🟡 เหลือง"},
+                    {"รายการ": "ใช้จ่ายจริง", "จำนวน": spent, "สี": "🔴 แดง"}
+                ]
+                bd_df = pd.DataFrame(breakdown_data)
+                # กรองเอาเฉพาะอันที่ไม่เป็น 0 เพื่อความสะอาดตา (ยกเว้นใช้จ่ายให้โชว์ตลอด)
+                bd_df = bd_df[(bd_df['จำนวน'] > 0) | (bd_df['รายการ'] == "ใช้จ่ายจริง")]
+                
+                st.dataframe(
+                    bd_df, 
+                    column_config={
+                        "รายการ": st.column_config.TextColumn("รายการ"),
+                        "จำนวน": st.column_config.NumberColumn("บาท", format="%.2f"),
+                        "สี": st.column_config.TextColumn("กลุ่ม")
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
                 st.markdown("---")
 
 # ==========================================
-# หน้า 3: ประวัติและแก้ไขข้อมูล (ข้อ 5, 6)
+# หน้า 3: ประวัติและแก้ไขข้อมูล
 # ==========================================
 elif page == "3. ประวัติและแก้ไขข้อมูล":
-    st.header("🕰️ ประวัติรายการ (แก้ไข/ลบ)")
+    st.header("🕰️ ประวัติรายการ")
     
-    # ตัวกรอง (Filter)
     if not st.session_state.df.empty:
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            # สร้างรายการเดือนที่มีข้อมูล
-            st.session_state.df['Month'] = st.session_state.df['Date'].dt.strftime('%Y-%m')
-            available_months = ["ทั้งหมด"] + sorted(st.session_state.df['Month'].unique().tolist(), reverse=True)
-            selected_month = st.selectbox("เลือกเดือน", available_months)
+        # Filter & Sort
+        df_show = st.session_state.df.copy()
+        df_show = df_show.sort_values(by="Date", ascending=False)
         
-        with col_f2:
-            sort_order = st.radio("เรียงลำดับ", ["ใหม่สุดไปเก่าสุด", "เก่าสุดไปใหม่สุด"], horizontal=True)
-        
-        # กรองข้อมูล
-        filtered_df = st.session_state.df.copy()
-        if selected_month != "ทั้งหมด":
-            filtered_df = filtered_df[filtered_df['Month'] == selected_month]
+        for index, row in df_show.iterrows():
+            if row['Type'] == 'รายรับ': icon = "💰"
+            elif row['Type'] == 'รายจ่าย': icon = "💸"
+            else: icon = "🔄"
             
-        if sort_order == "ใหม่สุดไปเก่าสุด":
-            filtered_df = filtered_df.sort_values(by="Date", ascending=False)
-        else:
-            filtered_df = filtered_df.sort_values(by="Date", ascending=True)
-
-        st.write(f"พบรายการทั้งสิ้น: {len(filtered_df)} รายการ")
-        
-        # แสดงรายการพร้อมปุ่ม Edit/Delete
-        # เนื่องจาก Streamlit แสดงปุ่มในตารางยาก เราจะใช้ Expander
-        for index, row in filtered_df.iterrows():
-            # สีขอบซ้ายบอกประเภท
-            border_color = "green" if row['Type'] == "รายรับ" else "red"
-            if row['Type'] == "โอนงบ": border_color = "blue"
-            
-            with st.expander(f"{border_color} | {row['Date'].strftime('%d/%m/%Y')} | {row['Category']} | {row['Amount']:,.2f} บาท"):
-                
-                e_col1, e_col2 = st.columns(2)
-                
-                # --- ส่วนแก้ไข (Edit) ---
-                with e_col1:
-                    st.write("✏️ **แก้ไขรายการ**")
-                    with st.form(key=f"edit_{row['ID']}"):
-                        ed_date = st.date_input("วันที่", row['Date'])
-                        ed_type = st.selectbox("ประเภท", ["รายรับ", "รายจ่าย", "โอนงบ"], index=["รายรับ", "รายจ่าย", "โอนงบ"].index(row['Type']))
-                        ed_cat = st.text_input("รายการ", row['Category']) # ใช้ Text input เพื่อรองรับรายการโอนด้วย
-                        ed_amt = st.number_input("จำนวนเงิน", value=float(row['Amount']), min_value=0.0)
-                        ed_note = st.text_input("หมายเหตุ", row['Note'])
-                        
-                        if st.form_submit_button("บันทึกการแก้ไข"):
-                            payload = {
-                                "action": "edit",
-                                "id": row['ID'],
-                                "date": ed_date.strftime("%Y-%m-%d"),
-                                "type": ed_type,
-                                "category": ed_cat,
-                                "amount": ed_amt,
-                                "note": ed_note
-                            }
-                            if send_data_to_sheet(payload):
-                                st.success("แก้ไขเรียบร้อย!")
-                                st.cache_data.clear()
-                                st.rerun()
-                
-                # --- ส่วนลบ (Delete) ---
-                with e_col2:
-                    st.write("🗑️ **ลบรายการ**")
-                    st.warning("กดแล้วลบทันที")
-                    if st.button("ลบรายการนี้", key=f"del_{row['ID']}"):
-                        payload = {"action": "delete", "id": row['ID']}
-                        if send_data_to_sheet(payload):
-                            st.success("ลบข้อมูลแล้ว")
-                            st.cache_data.clear()
-                            st.rerun()
-                            
+            with st.expander(f"{icon} {row['Date'].strftime('%d/%m')} | {row['Category']} | {row['Amount']:,.2f} บาท"):
+                c1, c2 = st.columns(2)
+                if c2.button("ลบรายการ", key=f"del_{row['ID']}"):
+                    if send_data_to_sheet({"action": "delete", "id": row['ID']}):
+                        st.success("ลบแล้ว")
+                        st.cache_data.clear()
+                        st.rerun()
     else:
-        st.info("ยังไม่มีข้อมูลในระบบ")
+        st.info("ยังไม่มีข้อมูล")
