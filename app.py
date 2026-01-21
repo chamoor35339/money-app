@@ -12,7 +12,7 @@ WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzbEluMkn-mnr74QYavb5K7Ab
 
 st.set_page_config(page_title="Chanon Budget Pro", layout="wide", page_icon="💰")
 
-# --- CSS: ปรับแต่งความสวยงาม ---
+# --- CSS: ปรับแต่งความสวยงามและปุ่ม ---
 st.markdown("""
 <style>
     /* ซ่อนปุ่ม +/- */
@@ -21,46 +21,43 @@ st.markdown("""
     
     /* สไตล์ตารางธุรกรรม */
     .trans-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: 'Sarabun', sans-serif;
-        margin-top: 5px;
-        margin-bottom: 20px;
-        border-radius: 8px;
-        overflow: hidden;
-        border: 1px solid #eee;
+        width: 100%; border-collapse: collapse; font-family: 'Sarabun', sans-serif;
+        margin-top: 5px; margin-bottom: 20px; border-radius: 8px; overflow: hidden; border: 1px solid #eee;
     }
-    .trans-row {
-        border-bottom: 1px solid #eee;
-    }
-    .trans-cell {
-        padding: 10px 15px;
-        font-size: 15px; /* ตัวหนังสือใหญ่ขึ้นนิดนึงให้อ่านง่ายในมือถือ */
-        color: #333;
-    }
-    .trans-amount {
-        text-align: right;
-        font-weight: bold;
-        white-space: nowrap;
-    }
+    .trans-row { border-bottom: 1px solid #eee; }
+    .trans-cell { padding: 8px 12px; font-size: 14px; color: #333; }
+    .trans-amount { text-align: right; font-weight: bold; white-space: nowrap; }
+    
     /* สีพื้นหลังพาสเทล + !important */
     .bg-green { background-color: #d1e7dd !important; color: #0f5132 !important; }   
     .bg-red { background-color: #f8d7da !important; color: #842029 !important; }     
     .bg-blue { background-color: #cff4fc !important; color: #055160 !important; }    
-    .bg-yellow { background-color: #fff3cd !important; color: #664d03 !important; }  
+    .bg-yellow { background-color: #fff3cd !important; color: #664d03 !important; }
+    
+    /* ปรับแต่งปุ่มเลือกหมวดหมู่ (Category Buttons) */
+    div.stButton > button {
+        width: 100%;
+        border-radius: 8px;
+        height: 50px;
+        font-weight: bold;
+        border: 1px solid #ddd;
+    }
+    /* ไฮไลท์ปุ่มที่ถูกเลือก (ใช้ CSS Hack เล็กน้อย) */
+    /* (Streamlit ควบคุมสีปุ่มยาก แต่เราใช้ Logic ใน Python ช่วยแสดงสถานะ) */
+
 </style>
 """, unsafe_allow_html=True)
 
-# --- ฟังก์ชันจัดการข้อมูล ---
-def load_data():
+# --- ฟังก์ชันจัดการข้อมูล (เพิ่ม Cache เพื่อความเร็ว) ---
+@st.cache_data(ttl=60) # จำข้อมูลไว้ 60 วินาที เพื่อลดการโหลดซ้ำ
+def load_data_from_server():
     try:
         response = requests.get(WEB_APP_URL)
         data = response.json()
         df = pd.DataFrame(data)
         
         expected_cols = ["ID", "Date", "Type", "Category", "Amount", "Note"]
-        if df.empty:
-            return pd.DataFrame(columns=expected_cols)
+        if df.empty: return pd.DataFrame(columns=expected_cols)
             
         for col in expected_cols:
             if col not in df.columns: df[col] = ""
@@ -74,14 +71,20 @@ def load_data():
 
 def send_data_to_sheet(payload):
     try:
-        requests.post(WEB_APP_URL, json=payload)
+        # ส่งข้อมูลแบบไม่รอผลลัพธ์นาน (Fire and Forget style simulation)
+        requests.post(WEB_APP_URL, json=payload, timeout=5) 
         return True
     except:
-        return False
+        return False # อาจจะ Time out แต่ข้อมูลมักจะไปถึง
 
-# โหลดข้อมูล
-if 'df' not in st.session_state or st.sidebar.button("🔄 ดึงข้อมูลล่าสุด"):
-    st.session_state.df = load_data()
+# ระบบโหลดข้อมูลแบบ Hybrid (Local + Server)
+if 'df' not in st.session_state:
+    st.session_state.df = load_data_from_server()
+
+# ปุ่มรีเฟรชด้วยมือ (Force Refresh)
+if st.sidebar.button("🔄 ดึงข้อมูลล่าสุด"):
+    st.cache_data.clear()
+    st.session_state.df = load_data_from_server()
 
 # --- กฎงบประมาณ ---
 budget_rules = {
@@ -112,7 +115,7 @@ if page == "1. บันทึกและภาพรวม":
         entry_amount = st.number_input("4. จำนวนเงิน (บาท)", min_value=0.0, step=None, format="%.2f")
         entry_note = st.text_input("หมายเหตุ")
         
-        if st.button("✅ ยืนยันการบันทึก", use_container_width=True):
+        if st.button("✅ ยืนยันการบันทึก", use_container_width=True, type="primary"):
             if entry_amount > 0:
                 new_id = str(uuid.uuid4())
                 payload = {
@@ -121,13 +124,20 @@ if page == "1. บันทึกและภาพรวม":
                     "type": entry_type, "category": entry_cat,
                     "amount": entry_amount, "note": entry_note
                 }
-                with st.spinner('กำลังบันทึก...'):
-                    if send_data_to_sheet(payload):
-                        st.success("บันทึกเรียบร้อย!")
-                        st.session_state.df = load_data()
-                        st.rerun()
-                    else:
-                        st.error("เกิดข้อผิดพลาดในการเชื่อมต่อ")
+                
+                # เทคนิคความเร็ว: อัปเดตหน้าจอทันที (Optimistic UI)
+                new_row = pd.DataFrame([{
+                    "ID": new_id, "Date": entry_date, "Type": entry_type, 
+                    "Category": entry_cat, "Amount": entry_amount, "Note": entry_note
+                }])
+                st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+                
+                # ส่งข้อมูลไปหลังบ้าน (ไม่ต้องรอโหลดใหม่)
+                send_data_to_sheet(payload)
+                st.success("บันทึกเรียบร้อย!")
+                st.rerun() # รีเฟรชหน้าจอทันทีโดยใช้ข้อมูลในเครื่อง
+            else:
+                st.error("เกิดข้อผิดพลาด")
     
     st.markdown("---")
     if not st.session_state.df.empty:
@@ -140,12 +150,11 @@ if page == "1. บันทึกและภาพรวม":
         c3.metric("คงเหลือ", f"{inc-exp:,.2f}")
 
 # ==========================================
-# หน้า 2: จัดสรรและโอนงบ (เลือกดูทีละรายการ)
+# หน้า 2: จัดสรรและโอนงบ (แก้ไขเป็นปุ่มกด)
 # ==========================================
 elif page == "2. จัดสรรและโอนงบ":
     st.header("🧱 บริหารงบประมาณ")
 
-    # ส่วนโอนงบ
     with st.expander("💸 โอนย้ายงบประมาณ (Transfer)"):
         c1, c2 = st.columns(2)
         with c1: from_c = st.selectbox("จาก", expense_cats)
@@ -159,10 +168,17 @@ elif page == "2. จัดสรรและโอนงบ":
                     "type": "โอนงบ", "category": f"From:{from_c},To:{to_c}",
                     "amount": amt, "note": "โอน"
                 }
-                if send_data_to_sheet(payload):
-                    st.success("โอนสำเร็จ")
-                    st.session_state.df = load_data()
-                    st.rerun()
+                
+                # Optimistic Update
+                new_row = pd.DataFrame([{
+                    "ID": str(uuid.uuid4()), "Date": datetime.now().date(), "Type": "โอนงบ", 
+                    "Category": f"From:{from_c},To:{to_c}", "Amount": amt, "Note": "โอน"
+                }])
+                st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+                
+                send_data_to_sheet(payload)
+                st.success("โอนสำเร็จ")
+                st.rerun()
 
     st.markdown("---")
     
@@ -171,26 +187,43 @@ elif page == "2. จัดสรรและโอนงบ":
         all_rules = budget_rules.copy()
         all_rules["อื่น ๆ"] = 100 - sum_pct
         
-        # --- ส่วนเลือกรายการที่จะดู (Select Box) ---
-        st.subheader("🔍 ตรวจสอบสถานะงบประมาณ")
-        selected_cat = st.selectbox("เลือกรายการที่ต้องการดู:", list(all_rules.keys()))
+        st.subheader("🔍 เลือกรายการเพื่อตรวจสอบสถานะ")
         
-        # ดึงค่า % ของรายการที่เลือก
-        pct = all_rules[selected_cat]
-        cat_name = selected_cat
+        # --- สร้างปุ่มกด (Button Grid) ---
+        # เตรียมตัวแปรเก็บค่าที่เลือก (ถ้ายังไม่มีให้เริ่มที่ตัวแรก)
+        if 'selected_budget_cat' not in st.session_state:
+            st.session_state.selected_budget_cat = list(all_rules.keys())[0]
 
-        st.info(f"กำลังแสดงข้อมูล: **{cat_name}** (ได้รับจัดสรร {pct}%)")
+        # สร้าง Grid 3 คอลัมน์สำหรับปุ่ม
+        btn_cols = st.columns(3)
+        cats_list = list(all_rules.keys())
         
-        # --- คำนวณเฉพาะรายการที่เลือก ---
+        for i, cat in enumerate(cats_list):
+            # ตรวจสอบว่าปุ่มนี้ถูกเลือกอยู่หรือไม่ เพื่อเปลี่ยนสีปุ่ม
+            is_selected = (st.session_state.selected_budget_cat == cat)
+            
+            # ถ้ากดปุ่ม ให้อัปเดตค่า selected_budget_cat
+            if btn_cols[i % 3].button(
+                f"{'🔵' if is_selected else '⚪'} {cat}", 
+                key=f"btn_{cat}", 
+                use_container_width=True,
+                type="primary" if is_selected else "secondary"
+            ):
+                st.session_state.selected_budget_cat = cat
+                st.rerun()
+
+        # --- แสดงข้อมูลของรายการที่เลือก ---
+        cat_name = st.session_state.selected_budget_cat
+        pct = all_rules[cat_name]
+        
+        st.markdown(f"### 📊 สถานะ: {cat_name} (งบ {pct}%)")
+        
         html_rows = ""
         total_budget = 0
         total_spent = 0
         
         for index, row in st.session_state.df.iterrows():
-            
-            note_txt = ""
-            if pd.notna(row['Note']) and str(row['Note']).strip() != "":
-                note_txt = f" ({row['Note']})"
+            note_txt = f" ({row['Note']})" if pd.notna(row['Note']) and str(row['Note']).strip() != "" else ""
 
             # 1. รายรับ
             if row['Type'] == "รายรับ":
@@ -219,17 +252,12 @@ elif page == "2. จัดสรรและโอนงบ":
         if html_rows == "":
             html_rows = "<tr><td colspan='2' style='padding:20px; text-align:center; color:#999;'>ยังไม่มีรายการเคลื่อนไหว</td></tr>"
 
-        # แสดงตาราง
         st.markdown(f"""<table class='trans-table'>{html_rows}</table>""", unsafe_allow_html=True)
         
-        # สรุปยอด (ทำให้ตัวใหญ่เห็นชัดๆ)
         remaining = total_budget - total_spent
-        
         c_res1, c_res2 = st.columns(2)
-        with c_res1:
-            st.metric("งบสุทธิ (บาท)", f"{total_budget:,.2f}")
-        with c_res2:
-            st.metric("ใช้ไปจริง (บาท)", f"{total_spent:,.2f}")
+        with c_res1: st.metric("งบสุทธิ", f"{total_budget:,.2f}")
+        with c_res2: st.metric("ใช้ไปจริง", f"{total_spent:,.2f}")
             
         if remaining >= 0:
             st.success(f"✅ **คงเหลือ:** {remaining:,.2f} บาท")
@@ -257,5 +285,6 @@ elif page == "3. ประวัติและแก้ไขข้อมูล
                 if st.button("ลบรายการ", key=f"del_{row['ID']}"):
                     if send_data_to_sheet({"action": "delete", "id": row['ID']}):
                         st.success("ลบแล้ว")
-                        st.session_state.df = load_data()
+                        st.cache_data.clear() # สั่งเคลียร์ Cache เมื่อมีการลบ
+                        st.session_state.df = load_data_from_server()
                         st.rerun()
